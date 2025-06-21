@@ -1,0 +1,57 @@
+# Molecular Diffusion Study using ReaxFF in LAMMPS
+# Designed for Nature Springer Paper Submission
+
+newton on                     # Newton's 3rd law optimization for pair interactions
+units real                    # Use real units for compatibility with ReaxFF
+boundary p p p                # Periodic boundaries in all directions
+	
+atom_style charge             # Atom style to accommodate ReaxFF charge calculations
+variable T equal 298          # Simulation temperature in Kelvin
+
+# Load atomic structure
+read_data dia10.dat
+timestep 0.1
+
+# Define ReaxFF forcefield
+pair_style reaxff control.reax_c.rdx
+pair_coeff * * ffield.reax H C O    # ReaxFF forcefield file with element mapping
+
+# Charge equilibration setup
+fix qeq all qeq/reaxff 1 0.0 10.0 1.0e-6 reaxfflmp
+
+# Thermodynamic output
+reset_timestep 0
+thermo 1000
+thermo_style custom step time temp press ke pe etotal
+
+# Energy minimization for system equilibration
+min_style cg                     # Conjugate gradient minimization
+minimize 1.0e-4 1.0e-6 1000 10000
+
+# NVT Equilibration
+fix nvt_eq all nvt temp 300.0 300.0 100  # Equilibration at 300K
+run 50000                              # Short run for initial equilibration
+
+# Unfix equilibration fix
+unfix nvt_eq
+
+# Final NVT setup for diffusion study
+fix nvt_run all nvt temp 300.0 300.0 100
+compute msd_all all msd                  # Compute Mean Squared Displacement (MSD)
+
+# Time-averaging Mean Squared Displacement components and total MSD
+variable msd_total equal c_msd_all[4]    # Total MSD
+variable msd_x equal c_msd_all[1]        # MSD in x-direction
+variable msd_y equal c_msd_all[2]        # MSD in y-direction
+variable msd_z equal c_msd_all[3]        # MSD in z-direction
+
+fix ave_msd_total all ave/time 100 100 10000 v_msd_total file msd_total.txt
+fix ave_msd_x all ave/time 100 100 10000 v_msd_x file msd_x.txt
+fix ave_msd_y all ave/time 100 100 10000 v_msd_y file msd_y.txt
+fix ave_msd_z all ave/time 100 100 10000 v_msd_z file msd_z.txt
+
+# Long simulation to gather diffusion data
+run 200000
+
+# Save the system state after the run
+write_restart restart.equilibration

@@ -1,0 +1,120 @@
+##package omp 60
+
+# ------------------------ INITIALIZATION ----------------------------
+newton on
+units        real
+boundary     p p p
+	
+atom_style   charge
+variable     T equal 298
+
+# ----------------------- ATOM DEFINITION ----------------------------
+read_data dia10pd.dat
+timestep 0.1
+# ------------------------ FORCE FIELDS ------------------------------
+pair_style      reaxff control.reax_c.rdx
+pair_coeff      * * ffield.reax H C N O
+
+# ------------------------- SETTINGS ---------------------------------
+#### Computes Required
+compute csym all centro/atom 12
+compute 2 all stress/atom NULL virial
+compute mytemp all temp
+compute 11 all reduce sum c_2[1]
+compute 12 all reduce sum c_2[2]
+compute 13 all reduce sum c_2[3]
+compute 14 all reduce sum c_2[4]
+compute 15 all reduce sum c_2[5]
+compute 16 all reduce sum c_2[6]
+
+neighbor     0.3 bin
+neigh_modify delay 10
+#one 3000 page 150000
+shell cd D:\LAMMPS
+shell mkdir dump
+shell cd dump			  
+#----------- Energy Minimization---------------------------
+reset_timestep 0
+thermo_style custom step temp etotal pe ke press pxx pyy pzz lx ly lz
+thermo 100
+
+dump            min all xyz 1 output_min.xyz
+dump_modify     min element H C N O
+fix             2 all qeq/reaxff 1 0.0 10.0 1.0e-6 reaxff									   
+min_style cg
+minimize 1e-32 1e-6 5000 10000
+
+#-----------variable declaration---------------------------- 
+
+variable q0 equal "step"
+variable q1 equal "etotal"
+variable q2 equal "pe"
+variable q3 equal "ke"
+variable q4 equal "temp"
+variable q5 equal "press"
+
+fix Energy_print all print 100 "${q0} ${q1} ${q2} ${q3} ${q4} ${q5}"  file energy.defprint.txt screen no
+undump min
+
+#---------------Energy Equilibriation--------------------------
+velocity all create $T 16723
+fix 1 all nve
+fix             2 all qeq/reaxff 1 0.0 10.0 1.0e-6 reaxff
+fix 3 all temp/rescale 10 $T $T 1.0 0.5
+#dump 1 all custom 10000 dump.equilibrate.* id type x y z 
+ 
+run 10000
+unfix 1
+unfix 3
+
+#-----------------Pressure Equilibriation-----------------------
+fix 1 all npt temp $T $T 10.0 aniso 1.0 1.0 10 drag 0.3
+#aniso NULL NULL NULL NULL 0.0 0.0 10 
+run 50000
+unfix 1
+#--------------- Equilibriation--------------------------
+fix 1 all nvt temp $T $T 50.0
+run 50000
+unfix 1
+
+shell cd ..
+shell mkdir deform
+shell cd deform
+#--------------------Storing Initial length---------------------
+variable tmp equal "lz"
+variable L0 equal ${tmp}
+print "Initial Length, L0: ${L0}"
+variable strain equal "v_srate/1e12"
+
+#------------Deform------------------------------
+reset_timestep 0
+fix 1 all deform 1 z erate 0.00001 units box
+fix 3 all nvt temp $T $T 10.0
+
+variable strain equal "(lz - v_L0)/v_L0"
+variable p1 equal "v_strain"
+variable p2 equal "-pxx/10000"
+variable p3 equal "-pyy/10000"
+variable p4 equal "-pzz/10000"
+variable p5 equal "lx"
+variable p6 equal "ly"
+variable p7 equal "lz"
+variable p8 equal "temp"
+variable p9 equal "pe"
+variable p10 equal "ke"
+variable p11 equal "-pxy/10000"
+variable p13 equal "-pyz/10000"
+variable p12 equal "-pxz/10000"
+variable fm equal "(v_p2+v_p3+v_p4)/3" ##### Hydrostatic stress
+
+variable fv equal "sqrt((v_p2-v_p3)^2+(v_p3-v_p4)^2+(v_p4-v_p2)^2+6*(v_p11^2+v_p12^2+v_p13^2)/2)" ######Von Mises Stress
+
+variable t equal "v_fm/v_fv"
+variable fd equal (((v_p2-v_fm)*(v_p3-v_fm)*(v_p4-v_fm))-v_p11^2*(v_p4-v_fm)-v_p12^2*(v_p3-v_fm)-v_p13^2*(v_p2-v_fm)+2*v_p11*v_p12*v_p13)####Deviatoric Von Mises stress
+
+dump 2 all custom 10000 dump.defo.* id type x y z c_csym c_2[1] c_2[2] c_2[3] c_2[4] c_2[5] c_2[6]
+
+fix def_print all print 1000 "${p1} ${p2} ${p3} ${p4} ${p5} ${p6} ${p7} ${p8} ${p9} ${p10} ${p11} ${p12} ${p13} ${fm} ${fv} ${t} ${fd}" file mg001.defprint.txt screen no
+run 2000000
+# SIMULATION DONE
+print "All done"

@@ -1,0 +1,117 @@
+
+# -------------------- INITIALIZATION --------------------
+units           real
+atom_style      charge
+boundary        p p p
+
+# -------------------- SYSTEM --------------------
+read_data       dia10_HNO3.dat
+
+### neighbor        2.0 bin                       # original
+neighbor        1.5 bin                           # ↓ slightly smaller skin – faster neighbour rebuilds
+neigh_modify    every 1 delay 0 check yes
+
+#––– new: safer timestep for ReaxFF –––––––––––––––––––––
+timestep        0.25                              # 0.25 fs avoids energy drift with reactive bonds
+variable        DT     equal 0.25
+variable        Tdamp  equal ${DT}*100.0          # 25 fs thermostat damping
+variable        Pdamp  equal ${DT}*1000.0         # 250 fs barostat damping
+# -------------------------------------------------------
+
+# -------------------- FORCE FIELD --------------------
+pair_style      reaxff control.reax_c.rdx
+pair_coeff      * * ffield.reax H C N O        # verify type↔element map
+
+fix             qeq all qeq/reax 1 0.0 10.0 1.0e-6 reaxff   # original
+
+pair_coeff      * * ffield.reax H C N O        # verify type↔element map
+
+
+# -------------------- MINIMIZATION --------------------
+reset_timestep  0
+min_style       cg
+minimize        1e-5 1e-5 10000 10000
+
+# -------------------- EQUILIBRATION (300 K) --------------------
+velocity        all create 300.0 12345 dist gaussian
+
+### fix             eq1 all nvt temp 300.0 300.0 100.0           # original
+fix             eq1 all nvt temp 300.0 300.0 ${Tdamp}            # use consistent Tdamp
+thermo          100
+thermo_style    custom step temp press pe ke etotal vol
+run             50000
+unfix           eq1
+
+### fix             eq2 all npt temp 300.0 300.0 100.0 iso 1.0 1.0 1000.0   # original
+fix             eq2 all npt temp 300.0 300.0 ${Tdamp} iso 1.0 1.0 ${Pdamp}  # new Tdamp/Pdamp
+run             100000
+unfix           eq2
+
+# -------------------- ANNEALING (300 → 550 K) --------------------
+variable        t_high equal 550.0              # was 800 K – reduced to avoid PVA decomposition
+variable        t_low  equal 300.0
+variable        ncycles equal 20
+variable        i loop ${ncycles}
+
+label           anneal_loop
+print           "Starting annealing cycle ${i} of ${ncycles}"
+
+### fix             anneal all nvt temp ${t_low} ${t_high} 25.0        # original
+fix             anneal all nvt temp ${t_low} ${t_high} ${Tdamp}
+run             20000                           # 20 000 × 0.25 fs = 5 ps (slower heating)
+unfix           anneal
+
+### fix             anneal all nvt temp ${t_high} ${t_low} 25.0        # original
+fix             anneal all nvt temp ${t_high} ${t_low} ${Tdamp}
+run             20000                          # 5 ps cooling
+unfix           anneal
+
+next            i
+jump            SELF anneal_loop
+
+# -------------------- FINAL EQUILIBRATION (200 ps @ 473 K) --------------------
+### fix             final_npt all npt temp 473.15 473.15 100.0 iso 1.0 1.0 1000.0   # original
+fix             final_npt all npt temp 473.15 473.15 ${Tdamp} iso 1.0 1.0 ${Pdamp}
+run             200000                          # 200 000 × 0.25 fs = 50 ps
+unfix           final_npt
+
+# -------------------- Tg COOLING --------------------
+variable        t_start  equal 513.0
+variable        t_end    equal 183.0
+variable        t_step   equal -10.0                         # 10 K decrement
+variable        t_current equal ${t_start}
+variable        datafile string "volume_vs_temp_cooling.dat"
+
+# Remove previous data file if it exists
+shell rm -f ${datafile}
+
+# Define useful thermo-style variables
+variable        vol     equal vol
+variable        density equal density
+variable        temp    equal temp                          # Instantaneous temperature
+
+# Write header
+print           "Temperature Volume Density" file ${datafile}
+
+label           cooling_loop
+print           "Cooling: running at ${t_current} K"
+
+# NPT cooling run at current temperature
+fix             cool all npt temp ${t_current} ${t_current} ${Tdamp} iso 1.0 1.0 ${Pdamp}
+
+# Log actual temperature, volume, and density every 100 steps
+fix logdata all print 100 "${temp} ${vol} ${density}" file ${datafile} append screen 
+
+# Run for 80000 steps (~20 ps at 0.25 fs)
+run             80000
+
+# Clean up
+unfix           logdata
+unfix           cool
+
+# Decrement temperature
+variable        t_current equal ${t_current}+${t_step}
+if "${t_current} >= ${t_end}" then "jump SELF cooling_loop"
+
+# Completion message
+print           "Tg cooling protocol complete → ${datafile}"
