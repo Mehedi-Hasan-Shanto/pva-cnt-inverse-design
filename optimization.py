@@ -108,7 +108,7 @@ distances = np.linalg.norm(F_opt - ideal_vector, axis=1)
 best_idx = np.argmin(distances)
 best_solution = df_output.iloc[best_idx]
 
-print("\n✅ Optimum Composite Configuration:")
+print("\n Optimum Composite Configuration:")
 print(best_solution.to_string(index=True))
 
 best_solution.to_frame().T.to_csv("optimum_composite_selected.csv", index=False)
