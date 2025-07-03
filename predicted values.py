@@ -33,4 +33,4 @@ for _, row in eq_df.iterrows():
 
 # === Step 5: Save the output ===
 results_df.to_csv("normalized_predictions_output.csv", index=False)
-print("✅ Predictions saved to normalized_predictions_output.csv")
+print("Predictions saved to normalized_predictions_output.csv")
