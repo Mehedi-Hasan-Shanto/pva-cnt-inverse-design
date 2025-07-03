@@ -66,5 +66,5 @@ coeff_df.index.name = "Term"
 coeff_df.to_csv("rsm_coefficients_scaled_final.csv")
 
 eq_df.to_csv("rsm_normalized_equations_final.csv", index=False)
-print("✅ Equations saved to rsm_normalized_equations_final.csv")
+print("Equations saved to rsm_normalized_equations_final.csv")
 
