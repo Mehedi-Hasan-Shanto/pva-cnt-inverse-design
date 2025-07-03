@@ -35,4 +35,4 @@ for feature, (actual_col, pred_col) in features.items():
 # Convert to DataFrame and save
 results_df = pd.DataFrame(results)
 results_df.to_csv("rsm_model_evaluation_metrics.csv", index=False)
-print("✅ Metrics saved to 'rsm_model_evaluation_metrics.csv'")
+print("Metrics saved to 'rsm_model_evaluation_metrics.csv'")
